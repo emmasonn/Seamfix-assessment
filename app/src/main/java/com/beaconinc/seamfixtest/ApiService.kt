@@ -8,12 +8,15 @@ import retrofit2.http.POST
 
 interface ApiService {
 
+    //abstract the url request with the power of retrofit
     @POST("create")
     suspend fun postEmergency(@Body emergency: Emergency)
 
     companion object {
+        //the base url
         private const val BASE_URL = "http://dummy.restapiexample.com/api/v1/"
 
+        //the below function contains networking code that communicates with the endpoint
         fun create(): ApiService {
             val client = OkHttpClient.Builder()
                 .build()

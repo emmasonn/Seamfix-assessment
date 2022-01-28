@@ -4,10 +4,12 @@ import android.util.Log
 import retrofit2.HttpException
 import java.io.IOException
 
+//Repository create for the sake of separation of concern
 class ApiRepository {
 
   private  val service  = ApiService.create()
 
+    //the function below interacts with the api service interface
     suspend fun postEmergency(emergency: Emergency): PostResult {
        return try {
          service.postEmergency(emergency)

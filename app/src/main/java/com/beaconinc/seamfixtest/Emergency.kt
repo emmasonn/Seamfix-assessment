@@ -2,6 +2,7 @@ package com.beaconinc.seamfixtest
 
 import java.lang.Exception
 
+//data model that is parse to json during network interaction
 data class Emergency(
     val phoneNumbers: List<String>,
     val image: String,

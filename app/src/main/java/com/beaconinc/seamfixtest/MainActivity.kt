@@ -35,102 +35,65 @@ import java.util.concurrent.TimeUnit
 class MainActivity : AppCompatActivity() {
 
     private val REQUEST_CHECK_SETTINGS = 2033
-    private val PERMISSION_REQUEST = 101
+    private val PERMISSION_REQUEST = 1010
 
-   private lateinit var postProgress: ProgressBar
+    private lateinit var postProgress: ProgressBar
     private val repository: ApiRepository = ApiRepository()
     private lateinit var fusedLocationClient: FusedLocationProviderClient //location api recommended by google
     private lateinit var locationCallBack: LocationCallback
     private lateinit var locationRequest: LocationRequest
-    private var currentLocation: android.location.Location? = null //this variable holds the current location
+    private lateinit var captureImage: ShapeableImageView
+    private var currentLocation: android.location.Location? =
+        null //this variable holds the current location
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        val captureImage = findViewById<ShapeableImageView>(R.id.captureImage)
+        initializeLocation()
+        captureImage = findViewById<ShapeableImageView>(R.id.captureImage)
         val cameraView = findViewById<CameraView>(R.id.externalCamera)
         cameraView.setLifecycleOwner(this)
         postProgress = findViewById(R.id.postProgress)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        captureImage.isEnabled
 
+        //a listener attached to the camera to listener to click effects
         cameraView.addCameraListener(object : CameraListener() {
             override fun onPictureTaken(result: PictureResult) {
                 super.onPictureTaken(result)
                 lifecycleScope.launch {
                     postProgress.visibility = View.VISIBLE
+                    captureImage.isEnabled = false
                     compressImage(result.data)
                 }
             }
         })
 
         captureImage.setOnClickListener {
-            CoroutineScope(Dispatchers.IO).launch {
+            getLocationUpdate()
+            lifecycleScope.launch(Dispatchers.IO) {
                 print("Sending request")
                 cameraView.takePicture()
             }
         }
+    }
 
+    private fun initializeLocation() {
         locationCallBack = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
                 super.onLocationResult(locationResult)
                 locationResult.lastLocation.let { location ->
-                      currentLocation = location
-                    }
+                    currentLocation = location
                 }
             }
+        }
+
         locationRequest = LocationRequest().apply {
             interval = TimeUnit.SECONDS.toMillis(60)
             fastestInterval = TimeUnit.SECONDS.toMillis(30)
             priority = PRIORITY_HIGH_ACCURACY
         }
         requestLocationPermission()
-    }
-
-    //this function is used to listen to device location at interval
-    @SuppressLint("MissingPermission")
-    private fun getLocationUpdate() {
-        if(checkPermission()) {
-            val builder = locationRequest.let {
-                LocationSettingsRequest.Builder()
-                    .addLocationRequest(it)
-            }
-            val client: SettingsClient = LocationServices.getSettingsClient(this)
-            val task: Task<LocationSettingsResponse> =
-                client.checkLocationSettings(builder.build())
-
-            task.addOnSuccessListener {
-                fusedLocationClient.requestLocationUpdates(locationRequest,locationCallBack, Looper.getMainLooper())
-            }
-
-            task.addOnFailureListener { exception ->
-                if (exception is ResolvableApiException) {
-                    try {
-                        exception.startResolutionForResult(this@MainActivity,
-                            REQUEST_CHECK_SETTINGS)
-                    } catch (sendEx: IntentSender.SendIntentException) {
-                        // Ignore the error.
-                    }
-                }
-            }
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        fusedLocationClient.removeLocationUpdates(locationCallBack)
-    }
-
-    //this suspend Function convert the captured image which is in ByteArray to Base64 string
-    private suspend fun compressImage(b: ByteArray ) {
-        val imageString = withContext(Dispatchers.Default) {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                Base64.getEncoder().encodeToString(b)
-            }else {
-                encodeToString(b, DEFAULT)
-            }
-        }
-        Log.i("MainActivity", imageString)
-        createPost(imageString, currentLocation)
     }
 
     //this function check the permission status of the device
@@ -142,15 +105,10 @@ class MainActivity : AppCompatActivity() {
         Manifest.permission.ACCESS_COARSE_LOCATION
     ) == PackageManager.PERMISSION_GRANTED)
 
+
+    //Requests location permission
     private fun requestLocationPermission() {
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
+        if (!checkPermission()) {
             ActivityCompat.requestPermissions(
                 this,
                 arrayOf(
@@ -159,9 +117,57 @@ class MainActivity : AppCompatActivity() {
                 ),
                 PERMISSION_REQUEST
             )
-        }else {
-            getLocationUpdate()
         }
+        getLocationUpdate()
+    }
+
+    //this function is used to listen to device location at interval
+    @SuppressLint("MissingPermission")
+    private fun getLocationUpdate() {
+        val builder = locationRequest.let {
+            LocationSettingsRequest.Builder()
+                .addLocationRequest(it)
+        }
+        val client: SettingsClient = LocationServices.getSettingsClient(this)
+        val task: Task<LocationSettingsResponse> =
+            client.checkLocationSettings(builder.build())
+
+        task.addOnSuccessListener {
+            fusedLocationClient.requestLocationUpdates(
+                locationRequest,
+                locationCallBack,
+                Looper.getMainLooper()
+            )
+        }
+        task.addOnFailureListener { exception ->
+            if (exception is ResolvableApiException) {
+                try {
+                    exception.startResolutionForResult(
+                        this@MainActivity,
+                        REQUEST_CHECK_SETTINGS
+                    )
+                } catch (sendEx: IntentSender.SendIntentException) {
+                    // Ignore the error.
+                }
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        fusedLocationClient.removeLocationUpdates(locationCallBack)
+    }
+
+    //this suspend Function convert the captured image which is in ByteArray to Base64 string
+    private suspend fun compressImage(b: ByteArray) {
+        val imageString = withContext(Dispatchers.Default) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                Base64.getEncoder().encodeToString(b)
+            } else {
+                encodeToString(b, DEFAULT)
+            }
+        }
+        createPost(imageString, currentLocation)
     }
 
     //this override is used to check the request of each intent
@@ -171,32 +177,35 @@ class MainActivity : AppCompatActivity() {
             REQUEST_CHECK_SETTINGS -> {
                 when (resultCode) {
                     Activity.RESULT_OK -> {
-                        getLastLocation()
+                        getLocationUpdate()
                     }
                     Activity.RESULT_CANCELED -> {
-                        Log.e( "MainActivity","User canceled location request")
+                        Log.e("MainActivity", "User canceled location request")
                     }
                 }
             }
             PERMISSION_REQUEST -> {
-                when(resultCode) {
+                Log.i("MainActivity", "Permission request result")
+                when (resultCode) {
                     Activity.RESULT_OK -> {
                         getLocationUpdate()
                     }
                 }
-
             }
         }
     }
 
     //this function gets the last location of the user
     private fun getLastLocation() {
-        if(checkPermission()) {
+        if (checkPermission()) {
             fusedLocationClient.lastLocation.addOnCompleteListener { task ->
-                if(task.isSuccessful) {
+                if (task.isSuccessful) {
                     val location = task.result
                     currentLocation = location
-                    Log.i("MainActivity","Longitude: ${location?.longitude}, Latitude: ${location?.latitude}")
+                    Log.i(
+                        "MainActivity",
+                        "Longitude: ${location?.longitude}, Latitude: ${location?.latitude}"
+                    )
                 }
             }
         }
@@ -208,24 +217,29 @@ class MainActivity : AppCompatActivity() {
         val emergency = Emergency(
             phoneNumbers = listOf("080333333333", "080444444444"),
             image = imageBase64,
-            location = Location(latitude = "${myLocation?.latitude}", longitude = "${myLocation?.longitude}")
+            location = Location(
+                latitude = "${myLocation?.latitude}",
+                longitude = "${myLocation?.longitude}"
+            )
         )
         Log.i("MainActivity", emergency.toString())
 
         //we consider the different state of the request
-        when(val response = repository.postEmergency(emergency)) {
-           is PostResult.Success -> {
-               val msg = response.msg
-                Toast.makeText(applicationContext, msg,Toast.LENGTH_SHORT).show()
-               lifecycleScope.launch {
-                   postProgress.visibility = View.GONE
-               }
+        when (val response = repository.postEmergency(emergency)) {
+            is PostResult.Success -> {
+                val msg = response.msg
+                Toast.makeText(applicationContext, msg, Toast.LENGTH_SHORT).show()
+                lifecycleScope.launch {
+                    postProgress.visibility = View.GONE
+                    captureImage.isEnabled = true
+                }
             }
             is PostResult.Failure -> {
                 val error = response.error
-                Toast.makeText(applicationContext, error.message ,Toast.LENGTH_SHORT).show()
+                Toast.makeText(applicationContext, error.message, Toast.LENGTH_SHORT).show()
                 lifecycleScope.launch {
                     postProgress.visibility = View.GONE
+                    captureImage.isEnabled = true
                 }
             }
         }
